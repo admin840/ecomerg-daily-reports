@@ -30,7 +30,7 @@ jobs:
         import requests
         import pandas as pd
         import os
-        from datetime import datetime
+        from datetime import datetime, timedelta
         
         def send_telegram_message(bot_token, chat_id, message):
             url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -57,51 +57,152 @@ jobs:
                 print(f"Error reading sheet: {e}")
                 return None
         
+        def format_number(num):
+            """Format numbers with proper Arabic formatting"""
+            if pd.isna(num) or num == 0:
+                return "0"
+            if num >= 1000:
+                return f"{num:,.0f}"
+            elif num >= 1:
+                return f"{num:.1f}"
+            else:
+                return f"{num:.2f}"
+        
+        def get_performance_emoji(value, threshold_good=80, threshold_ok=60):
+            """Get performance emoji based on value"""
+            if pd.isna(value):
+                return "⚪"
+            if value >= threshold_good:
+                return "🟢"
+            elif value >= threshold_ok:
+                return "🟡"
+            else:
+                return "🔴"
+        
         def generate_report():
             df = get_sheet_data()
             if df is None:
                 return "❌ **خطأ في قراءة البيانات**\n\nلم أتمكن من الوصول لبيانات Google Sheet"
             
+            if df.empty:
+                return "📊 **تقرير Ecomerg اليومي**\n\n⚠️ **لا توجد بيانات متاحة**"
+            
             # Get today's date
             today = datetime.now().strftime('%Y-%m-%d')
+            yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
             
-            # Generate report
+            # Generate report header
             report = f"📊 **تقرير Ecomerg اليومي**\n"
-            report += f"📅 **التاريخ:** {today}\n\n"
+            report += f"📅 **التاريخ:** {today}\n"
+            report += f"⏰ **وقت التقرير:** {datetime.now().strftime('%H:%M:%S')}\n\n"
             
-            # Basic statistics
+            # Get latest data (assuming last row is most recent)
+            latest_data = df.iloc[-1] if len(df) > 0 else None
+            
+            if latest_data is not None:
+                # Orders Summary
+                report += "🛒 **ملخص الطلبات:**\n"
+                
+                if '🛒 طلبات جديدة' in df.columns:
+                    new_orders = latest_data.get('🛒 طلبات جديدة', 0)
+                    report += f"• طلبات جديدة: {format_number(new_orders)}\n"
+                
+                if '✅ تم التسليم' in df.columns:
+                    delivered = latest_data.get('✅ تم التسليم', 0)
+                    report += f"• تم التسليم: {format_number(delivered)}\n"
+                
+                if '❌ ملغي' in df.columns:
+                    cancelled = latest_data.get('❌ ملغي', 0)
+                    report += f"• ملغي: {format_number(cancelled)}\n"
+                
+                if '⏸️ معلق' in df.columns:
+                    pending = latest_data.get('⏸️ معلق', 0)
+                    report += f"• معلق: {format_number(pending)}\n"
+                
+                report += "\n"
+                
+                # Financial Summary
+                report += "💰 **الملخص المالي:**\n"
+                
+                if '💰 الميزانية' in df.columns:
+                    budget = latest_data.get('💰 الميزانية', 0)
+                    report += f"• الميزانية: {format_number(budget)} د.ك\n"
+                
+                if '💰 الإيرادات الفعلية' in df.columns:
+                    revenue = latest_data.get('💰 الإيرادات الفعلية', 0)
+                    report += f"• الإيرادات الفعلية: {format_number(revenue)} د.ك\n"
+                
+                if '💵 سعر الطلب' in df.columns:
+                    order_price = latest_data.get('💵 سعر الطلب', 0)
+                    report += f"• سعر الطلب: {format_number(order_price)} د.ك\n"
+                
+                if '💎 السعر الحقيقي' in df.columns:
+                    real_price = latest_data.get('💎 السعر الحقيقي', 0)
+                    report += f"• السعر الحقيقي: {format_number(real_price)} د.ك\n"
+                
+                report += "\n"
+                
+                # Performance Metrics
+                report += "📈 **مؤشرات الأداء:**\n"
+                
+                if '📉 معدل الإلغاء %' in df.columns:
+                    cancel_rate = latest_data.get('📉 معدل الإلغاء %', 0)
+                    emoji = get_performance_emoji(100 - cancel_rate, 90, 80)
+                    report += f"• معدل الإلغاء: {format_number(cancel_rate)}% {emoji}\n"
+                
+                if '📈 معدل التحويل %' in df.columns:
+                    conversion_rate = latest_data.get('📈 معدل التحويل %', 0)
+                    emoji = get_performance_emoji(conversion_rate, 5, 3)
+                    report += f"• معدل التحويل: {format_number(conversion_rate)}% {emoji}\n"
+                
+                if '💸 ROAS' in df.columns:
+                    roas = latest_data.get('💸 ROAS', 0)
+                    emoji = get_performance_emoji(roas, 3, 2)
+                    report += f"• ROAS: {format_number(roas)} {emoji}\n"
+                
+                if '🎯 الأداء العام' in df.columns:
+                    overall_performance = latest_data.get('🎯 الأداء العام', 0)
+                    emoji = get_performance_emoji(overall_performance, 80, 60)
+                    report += f"• الأداء العام: {format_number(overall_performance)}% {emoji}\n"
+                
+                report += "\n"
+                
+                # Weekly Summary (if we have enough data)
+                if len(df) >= 7:
+                    report += "📊 **ملخص الأسبوع الماضي:**\n"
+                    
+                    # Get last 7 days data
+                    last_week = df.tail(7)
+                    
+                    if '🛒 طلبات جديدة' in df.columns:
+                        weekly_orders = last_week['🛒 طلبات جديدة'].sum()
+                        report += f"• إجمالي الطلبات: {format_number(weekly_orders)}\n"
+                    
+                    if '💰 الإيرادات الفعلية' in df.columns:
+                        weekly_revenue = last_week['💰 الإيرادات الفعلية'].sum()
+                        report += f"• إجمالي الإيرادات: {format_number(weekly_revenue)} د.ك\n"
+                    
+                    if '📈 معدل التحويل %' in df.columns:
+                        avg_conversion = last_week['📈 معدل التحويل %'].mean()
+                        report += f"• متوسط التحويل: {format_number(avg_conversion)}%\n"
+                    
+                    report += "\n"
+            
+            # Data Quality Check
             total_rows = len(df)
-            report += f"📈 **إجمالي السجلات:** {total_rows}\n"
+            report += f"📋 **معلومات البيانات:**\n"
+            report += f"• إجمالي السجلات: {total_rows}\n"
+            report += f"• آخر تحديث: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
             
-            # If there are specific columns, analyze them
-            if not df.empty:
-                columns = df.columns.tolist()
-                report += f"📋 **الأعمدة المتاحة:** {len(columns)}\n"
-                
-                # Show first few column names
-                if len(columns) > 0:
-                    report += f"📝 **أسماء الأعمدة:** {', '.join(columns[:5])}\n"
-                    if len(columns) > 5:
-                        report += f"... و {len(columns) - 5} أعمدة أخرى\n"
-                
-                # Look for common e-commerce columns
-                if 'Orders' in columns:
-                    if pd.api.types.is_numeric_dtype(df['Orders']):
-                        total_orders = df['Orders'].sum()
-                        report += f"🛒 **إجمالي الطلبات:** {total_orders}\n"
-                
-                if 'Revenue' in columns:
-                    if pd.api.types.is_numeric_dtype(df['Revenue']):
-                        total_revenue = df['Revenue'].sum()
-                        report += f"💰 **إجمالي الإيرادات:** {total_revenue:.2f} KWD\n"
-            
-            report += f"\n✅ **تم إنشاء التقرير بنجاح في:** {datetime.now().strftime('%H:%M:%S')}"
+            # Footer
+            report += f"\n✅ **تم إنشاء التقرير بنجاح**\n"
+            report += f"🤖 **نظام التقارير التلقائي - Ecomerg**"
             
             return report
         
         # Main execution
         try:
-            print("🚀 بدء إنشاء التقرير اليومي...")
+            print("🚀 بدء إنشاء التقرير اليومي المحسن...")
             
             # Generate report
             report_message = generate_report()
@@ -114,6 +215,7 @@ jobs:
             
             if result.get('ok'):
                 print("✅ تم إرسال التقرير بنجاح!")
+                print(f"📨 Message ID: {result.get('result', {}).get('message_id', 'N/A')}")
             else:
                 print(f"❌ خطأ في إرسال التقرير: {result}")
         
