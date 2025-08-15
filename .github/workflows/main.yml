@@ -30,7 +30,7 @@ jobs:
         import requests
         import pandas as pd
         import os
-        from datetime import datetime, timedelta
+        from datetime import datetime
         
         def send_telegram_message(bot_token, chat_id, message):
             url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -57,27 +57,39 @@ jobs:
                 print(f"Error reading sheet: {e}")
                 return None
         
+        def get_status_emoji(team_name, cancel_rate, delivered, new_orders):
+            """Get status emoji based on performance"""
+            if delivered == 0 and new_orders > 0:
+                return "🚨"  # No deliveries yet
+            elif cancel_rate > 10:
+                return "⚠️"  # High cancel rate
+            else:
+                return "✅"  # Good performance
+        
+        def get_rank_emoji(rank):
+            """Get rank emoji"""
+            rank_emojis = {
+                1: "🥇", 2: "🥈", 3: "🥉", 4: "4️⃣", 5: "5️⃣",
+                6: "6️⃣", 7: "7️⃣", 8: "8️⃣", 9: "9️⃣", 10: "🔟"
+            }
+            return rank_emojis.get(rank, f"{rank}️⃣")
+        
         def format_number(num):
-            """Format numbers with proper Arabic formatting"""
+            """Format numbers with proper formatting"""
             if pd.isna(num) or num == 0:
                 return "0"
+            if isinstance(num, str):
+                try:
+                    num = float(num)
+                except:
+                    return str(num)
+            
             if num >= 1000:
                 return f"{num:,.0f}"
             elif num >= 1:
                 return f"{num:.1f}"
             else:
                 return f"{num:.2f}"
-        
-        def get_performance_emoji(value, threshold_good=80, threshold_ok=60):
-            """Get performance emoji based on value"""
-            if pd.isna(value):
-                return "⚪"
-            if value >= threshold_good:
-                return "🟢"
-            elif value >= threshold_ok:
-                return "🟡"
-            else:
-                return "🔴"
         
         def generate_report():
             df = get_sheet_data()
@@ -88,121 +100,125 @@ jobs:
                 return "📊 **تقرير Ecomerg اليومي**\n\n⚠️ **لا توجد بيانات متاحة**"
             
             # Get today's date
-            today = datetime.now().strftime('%Y-%m-%d')
-            yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+            today = datetime.now().strftime('%d/%m/%Y')
             
             # Generate report header
-            report = f"📊 **تقرير Ecomerg اليومي**\n"
-            report += f"📅 **التاريخ:** {today}\n"
-            report += f"⏰ **وقت التقرير:** {datetime.now().strftime('%H:%M:%S')}\n\n"
+            report = f"🔥 **التقرير الذكي - {today}**\n"
+            report += "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            report += "✅ **الفرق النشطة:**\n"
             
-            # Get latest data (assuming last row is most recent)
-            latest_data = df.iloc[-1] if len(df) > 0 else None
+            # Process data
+            teams_data = []
+            total_orders = 0
+            total_delivered = 0
+            total_cancelled = 0
+            total_budget = 0
+            complete_teams = 0
+            incomplete_teams = 0
             
-            if latest_data is not None:
-                # Orders Summary
-                report += "🛒 **ملخص الطلبات:**\n"
-                
-                if '🛒 طلبات جديدة' in df.columns:
-                    new_orders = latest_data.get('🛒 طلبات جديدة', 0)
-                    report += f"• طلبات جديدة: {format_number(new_orders)}\n"
-                
-                if '✅ تم التسليم' in df.columns:
-                    delivered = latest_data.get('✅ تم التسليم', 0)
-                    report += f"• تم التسليم: {format_number(delivered)}\n"
-                
-                if '❌ ملغي' in df.columns:
-                    cancelled = latest_data.get('❌ ملغي', 0)
-                    report += f"• ملغي: {format_number(cancelled)}\n"
-                
-                if '⏸️ معلق' in df.columns:
-                    pending = latest_data.get('⏸️ معلق', 0)
-                    report += f"• معلق: {format_number(pending)}\n"
-                
-                report += "\n"
-                
-                # Financial Summary
-                report += "💰 **الملخص المالي:**\n"
-                
-                if '💰 الميزانية' in df.columns:
-                    budget = latest_data.get('💰 الميزانية', 0)
-                    report += f"• الميزانية: {format_number(budget)} د.ك\n"
-                
-                if '💰 الإيرادات الفعلية' in df.columns:
-                    revenue = latest_data.get('💰 الإيرادات الفعلية', 0)
-                    report += f"• الإيرادات الفعلية: {format_number(revenue)} د.ك\n"
-                
-                if '💵 سعر الطلب' in df.columns:
-                    order_price = latest_data.get('💵 سعر الطلب', 0)
-                    report += f"• سعر الطلب: {format_number(order_price)} د.ك\n"
-                
-                if '💎 السعر الحقيقي' in df.columns:
-                    real_price = latest_data.get('💎 السعر الحقيقي', 0)
-                    report += f"• السعر الحقيقي: {format_number(real_price)} د.ك\n"
-                
-                report += "\n"
-                
-                # Performance Metrics
-                report += "📈 **مؤشرات الأداء:**\n"
-                
-                if '📉 معدل الإلغاء %' in df.columns:
-                    cancel_rate = latest_data.get('📉 معدل الإلغاء %', 0)
-                    emoji = get_performance_emoji(100 - cancel_rate, 90, 80)
-                    report += f"• معدل الإلغاء: {format_number(cancel_rate)}% {emoji}\n"
-                
-                if '📈 معدل التحويل %' in df.columns:
-                    conversion_rate = latest_data.get('📈 معدل التحويل %', 0)
-                    emoji = get_performance_emoji(conversion_rate, 5, 3)
-                    report += f"• معدل التحويل: {format_number(conversion_rate)}% {emoji}\n"
-                
-                if '💸 ROAS' in df.columns:
-                    roas = latest_data.get('💸 ROAS', 0)
-                    emoji = get_performance_emoji(roas, 3, 2)
-                    report += f"• ROAS: {format_number(roas)} {emoji}\n"
-                
-                if '🎯 الأداء العام' in df.columns:
-                    overall_performance = latest_data.get('🎯 الأداء العام', 0)
-                    emoji = get_performance_emoji(overall_performance, 80, 60)
-                    report += f"• الأداء العام: {format_number(overall_performance)}% {emoji}\n"
-                
-                report += "\n"
-                
-                # Weekly Summary (if we have enough data)
-                if len(df) >= 7:
-                    report += "📊 **ملخص الأسبوع الماضي:**\n"
+            for index, row in df.iterrows():
+                try:
+                    team_name = str(row.get('المجموعة', 'Unknown'))
+                    new_orders = float(row.get('🛒 طلبات جديدة', 0)) if pd.notna(row.get('🛒 طلبات جديدة', 0)) else 0
+                    delivered = float(row.get('✅ تم التسليم', 0)) if pd.notna(row.get('✅ تم التسليم', 0)) else 0
+                    cancelled = float(row.get('❌ ملغي', 0)) if pd.notna(row.get('❌ ملغي', 0)) else 0
+                    hold = float(row.get('⏸️ معلق', 0)) if pd.notna(row.get('⏸️ معلق', 0)) else 0
+                    budget = float(row.get('💰 الميزانية', 0)) if pd.notna(row.get('💰 الميزانية', 0)) else 0
                     
-                    # Get last 7 days data
-                    last_week = df.tail(7)
+                    # Calculate metrics
+                    total_processed = delivered + cancelled
+                    cancel_rate = (cancelled / total_processed * 100) if total_processed > 0 else 0
+                    order_price = (budget / new_orders) if new_orders > 0 else 0
+                    target = delivered - cancelled  # Simple target calculation
                     
-                    if '🛒 طلبات جديدة' in df.columns:
-                        weekly_orders = last_week['🛒 طلبات جديدة'].sum()
-                        report += f"• إجمالي الطلبات: {format_number(weekly_orders)}\n"
+                    # Determine status
+                    status_emoji = get_status_emoji(team_name, cancel_rate, delivered, new_orders)
                     
-                    if '💰 الإيرادات الفعلية' in df.columns:
-                        weekly_revenue = last_week['💰 الإيرادات الفعلية'].sum()
-                        report += f"• إجمالي الإيرادات: {format_number(weekly_revenue)} د.ك\n"
+                    # Check if data is complete
+                    if new_orders > 0 or delivered > 0 or cancelled > 0:
+                        complete_teams += 1
+                    else:
+                        incomplete_teams += 1
                     
-                    if '📈 معدل التحويل %' in df.columns:
-                        avg_conversion = last_week['📈 معدل التحويل %'].mean()
-                        report += f"• متوسط التحويل: {format_number(avg_conversion)}%\n"
+                    teams_data.append({
+                        'team': team_name,
+                        'new_orders': new_orders,
+                        'delivered': delivered,
+                        'cancelled': cancelled,
+                        'hold': hold,
+                        'budget': budget,
+                        'cancel_rate': cancel_rate,
+                        'order_price': order_price,
+                        'target': target,
+                        'status': status_emoji
+                    })
                     
-                    report += "\n"
+                    # Add to totals
+                    total_orders += new_orders
+                    total_delivered += delivered
+                    total_cancelled += cancelled
+                    total_budget += budget
+                    
+                except Exception as e:
+                    print(f"Error processing row {index}: {e}")
+                    continue
             
-            # Data Quality Check
-            total_rows = len(df)
-            report += f"📋 **معلومات البيانات:**\n"
-            report += f"• إجمالي السجلات: {total_rows}\n"
-            report += f"• آخر تحديث: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
+            # Sort teams by new orders (descending)
+            teams_data.sort(key=lambda x: x['new_orders'], reverse=True)
             
-            # Footer
-            report += f"\n✅ **تم إنشاء التقرير بنجاح**\n"
-            report += f"🤖 **نظام التقارير التلقائي - Ecomerg**"
+            # Generate team reports
+            for rank, team in enumerate(teams_data, 1):
+                if team['new_orders'] == 0 and team['delivered'] == 0 and team['cancelled'] == 0:
+                    # Incomplete data
+                    report += f"{get_rank_emoji(rank)} **{team['team']} ⚠️**\n"
+                    report += "⚠️ **بيانات ناقصة**\n"
+                    report += "📦 New Orders: 0\n"
+                    report += "🚚 Delivered: 0\n"
+                    report += "❌ Cancel: 0\n"
+                    report += "⏳ Hold: 0\n"
+                    report += "💸 Budget: 0\n"
+                    report += "🎯 Target: +0\n"
+                    report += "💰 Order Price: 0.00\n"
+                    report += "📊 Cancel Rate: 0.0%\n"
+                else:
+                    # Complete data
+                    target_sign = "+" if team['target'] >= 0 else ""
+                    report += f"{get_rank_emoji(rank)} **{team['team']} {team['status']}**\n"
+                    report += f"📦 New Orders: {format_number(team['new_orders'])}\n"
+                    report += f"🚚 Delivered: {format_number(team['delivered'])}\n"
+                    report += f"❌ Cancel: {format_number(team['cancelled'])}\n"
+                    report += f"⏳ Hold: {format_number(team['hold'])}\n"
+                    report += f"💸 Budget: {format_number(team['budget'])}\n"
+                    report += f"🎯 Target: {target_sign}{format_number(team['target'])}\n"
+                    report += f"💰 Order Price: {format_number(team['order_price'])}\n"
+                    report += f"📊 Cancel Rate: {team['cancel_rate']:.1f}%\n"
+                
+                report += "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            
+            # Generate summary
+            total_processed = total_delivered + total_cancelled
+            overall_cancel_rate = (total_cancelled / total_processed * 100) if total_processed > 0 else 0
+            delivery_rate = (total_delivered / total_processed * 100) if total_processed > 0 else 0
+            avg_order_price = (total_budget / total_orders) if total_orders > 0 else 0
+            
+            report += "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            report += f"📊 **ملخص {today}:**\n"
+            report += f"✅ فرق بيانات كاملة: {complete_teams}/{len(teams_data)}\n"
+            report += f"⚠️ فرق بيانات ناقصة: {incomplete_teams}\n"
+            report += f"❌ فرق بدون بيانات: 0\n"
+            report += f"📦 إجمالي الطلبات: {format_number(total_orders)}\n"
+            report += f"🚚 إجمالي المسلم: {format_number(total_delivered)}\n"
+            report += f"❌ إجمالي الملغي: {format_number(total_cancelled)}\n"
+            report += f"💸 إجمالي الميزانية: {format_number(total_budget)}\n"
+            report += f"💰 متوسط سعر الطلب: {format_number(avg_order_price)}\n"
+            report += f"📈 معدل التسليم: {delivery_rate:.1f}%\n"
+            report += f"📉 معدل الإلغاء: {overall_cancel_rate:.1f}%\n"
             
             return report
         
         # Main execution
         try:
-            print("🚀 بدء إنشاء التقرير اليومي المحسن...")
+            print("🚀 بدء إنشاء التقرير الاحترافي...")
             
             # Generate report
             report_message = generate_report()
